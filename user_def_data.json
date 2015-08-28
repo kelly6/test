@@ -1,0 +1,131 @@
+{
+  "config_id":"14867",
+  "tables": [
+    {
+      "table_name": "info",
+      "content": [
+        [
+          "url",
+          "text",
+          "URL",
+          "NOT NULL",
+          ""
+        ],
+        [
+          "title",
+          "text",
+          "标题",
+          "NULL",
+          ""
+        ],
+        [
+          "content",
+          "text",
+          "内容",
+          "NULL",
+          ""
+        ],
+        [
+          "config_id",
+          "text",
+          "配置I",
+          "NULL",
+          ""
+        ],
+        [
+          "siteName",
+          "text",
+          "网站",
+          "NULL",
+          ""
+        ],
+        [
+          "source",
+          "text",
+          "来源",
+          "NULL",
+          ""
+        ],
+        [
+          "keywords",
+          "text",
+          "关键字",
+          "NULL",
+          ""
+        ],
+        [
+          "gtime",
+          "interger",
+          "gtime",
+          "NULL",
+          ""
+        ],
+        [
+          "ctime",
+          "interger",
+          "发布时间",
+          "NULL",
+          ""
+        ]
+      ],
+      "index": [
+        ["url_index", "url", 0],
+        ["ctime_index", "ctime", 0],
+        ["gtime_index", "gtime", 0]
+        ]
+    },
+    {
+      "table_name": "comment",
+      "content": [
+        [
+          "url",
+          "text",
+          "URL",
+          "NOT NULL",
+          ""
+        ],
+        [
+          "title",
+          "text",
+          "标题",
+          "NULL",
+          ""
+        ],
+        [
+          "content",
+          "text",
+          "内容",
+          "NULL",
+          ""
+        ],
+        [
+          "ctime",
+          "interger",
+          "发布时间",
+          "NULL",
+          ""
+        ]
+      ],
+      "index": [
+        ["url_index", "url", 0],
+        ["time_index", "ctime", 0]
+        ]
+    }
+  ],
+  "storage":[
+    ["data.url", "info.url", "one2one"],
+    ["data.config_id", "info.config_id", "one2one"],
+    ["data.ctime", "info.ctime", "one2one"],
+    ["data.title", "info.title", "one2one"],
+    ["data.content", "info.content", "one2one"],
+    ["data.siteName", "info.siteName", "one2one"],
+    ["data.source", "info.source", "one2one"],
+    ["data.info_flag", "info.info_flag", "one2one"],
+    ["data.keywords", "info.keywords", "one2one"],
+    ["data.gtime", "info.gtime", "one2one"]
+    ],
+  "mapping":[
+    ["info.url", "author.__url"],
+    ["info.url", "acceptedAnswer.__url"]
+    ]
+}
