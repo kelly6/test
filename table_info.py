@@ -151,7 +151,7 @@ class raw_info_parser:
         for table in td["tables"]:
             name = table["table_name"]
             content_list = table["content"]
-            index_list = table["index"]
+            index_list = table.get("index", [])
             create_sql.extend(self.get_create_sql_by_items(name, content_list, index_list))
         return create_sql
 
@@ -204,6 +204,9 @@ class raw_info_parser:
         data_path_list = self.table_info[config_id]["data_path_list"]
         return (data_path_list.get(table_name, {}).get(col, []), self.get_table_type(config_id, table_name))
 
+    def get_data_path_deepth(self, config_id, table_name):
+        return self.table_info[config_id]["list_deepth_dic"][table_name]
+
     def gen_col_list(self, config_id, table):
         table_type_dic = self.table_info[config_id]["table_type_dic"]
         col_list = []
@@ -222,6 +225,7 @@ class raw_info_parser:
         storage_list = table_v[u"storage"]
         data_path_list = {}
         table_type_dic = {}
+        list_deepth_dic = {}
         for storage in storage_list:
             data_col = storage[raw_info_parser.data_col_idx].encode("utf8")
             table_col = storage[raw_info_parser.table_col_idx].encode("utf8")
@@ -231,21 +235,28 @@ class raw_info_parser:
             table_name = table_sp[0]
             if table_name not in data_path_list:
                 data_path_list[table_sp[0]] = {}
-            data_path_list[table_sp[0]][table_sp[1]] = data_sp[1:]
+            data_path = [list if i == "__list__" else i for i in data_sp[1:]]
+            data_path_list[table_sp[0]][table_sp[1]] = data_path
+            list_deepth = 0
+            for i in data_path:
+                if i is list:
+                    list_deepth += 1
+            tmp_v = list_deepth_dic.get(table_sp[0], 0)
+            list_deepth_dic[table_sp[0]] = list_deepth if tmp_v < list_deepth else tmp_v
             table_type_dic[table_sp[0]] = map_type
-        for table_name in data_path_list:
-            if table_type_dic[table_name] == raw_info_parser.multi2multi:
-                old_table_dic = data_path_list[table_name].items()
-                col_list = ["__url"]
-                #path_list = old_table_dic[0][1][:-1]
-                path_list = [["url"]]
-                for col, pathl in old_table_dic:
-                    col_list.append(col)
-                    #print "pathl:", pathl
-                    path_list.append(pathl)
-                data_path_list[table_name] = {tuple(col_list):path_list}
+        #for table_name in data_path_list:
+        #    if table_type_dic[table_name] == raw_info_parser.multi2multi:
+        #        old_table_dic = data_path_list[table_name].items()
+        #        col_list = ["__url"]
+        #        #path_list = old_table_dic[0][1][:-1]
+        #        path_list = [["url"]]
+        #        for col, pathl in old_table_dic:
+        #            col_list.append(col)
+        #            #print "pathl:", pathl
+        #            path_list.append(pathl)
+        #        data_path_list[table_name] = {tuple(col_list):path_list}
 
-        return (data_path_list, table_type_dic)
+        return (data_path_list, table_type_dic, list_deepth_dic)
 
     def update_table_info_s(self, config_id, table_s):
         table_v = ujson.loads(table_s)
@@ -253,9 +264,10 @@ class raw_info_parser:
         self.table_info[config_id]["raw_s"] = table_s
         self.table_info[config_id]["table_data"] = table_v
         self.table_info[config_id]["create_sql"] = self.gen_create_sql(config_id, table_v)
-        data_path_list, table_type_dic = self.gen_data_path_list(config_id, table_v)
+        data_path_list, table_type_dic, list_deepth_dic = self.gen_data_path_list(config_id, table_v)
         self.table_info[config_id]["data_path_list"] = data_path_list
         self.table_info[config_id]["table_type_dic"] = table_type_dic
+        self.table_info[config_id]["list_deepth_dic"] = list_deepth_dic
         table_info = {}
         table_info["col_list"] = {}
         for table_name in data_path_list:
@@ -269,7 +281,7 @@ class raw_info_parser:
         #    table_info["col_list"][table_name] = self.gen_col_list(config_id, table)
 
     def refresh_table_info(self, config_id):
-        print "config.table_info_hkey:%s, config_id:%s" % (config.table_info_hkey, config_id)
+        #print "config.table_info_hkey:%s, config_id:%s" % (config.table_info_hkey, config_id)
         s = raw_info_parser.rhd.hget(config.table_info_hkey, config_id)
         if not s:
             s = "{}"
@@ -343,50 +355,122 @@ class table_gen:
         #todo 弃用此接口
         return 0
 
-    def get_col_data(self, config_id, table_name, col, data):
-        #todo __url需要做到配置
-        #if col == "__url":
-        #    return (data[u"url"], type(data[u"url"]))
-        #print "col:", col, type(col)
-        path_list, map_type = self.info_parser.get_col_data_path_list(config_id, table_name, col)
-        #print "path_list:", path_list
-        #print "map_type:", map_type
-        if map_type == raw_info_parser.multi2multi:
-            if not isinstance(col, tuple):
-                return (None, type(None))
-            #assert 这里把最后一级作为值 非最后一级作为path
-            result_list_path = path_list[-1][:-1]
-            print "result_list_path:", result_list_path
-            tmp = data
-            for path in result_list_path:
-                #print "path:", path
-                v = tmp[path.decode("utf8")]
-                tmp = v
-            #print "after result_list_path v:", ujson.dumps(v)
-            result_list = []
-            for item in v:
-                col_vlist = []
-                for idx, c in enumerate(col):
-                    if c == "__url":
-                        tmp_v = data[path_list[idx][-1]]
-                    else:
-                        #print "path_list:", path_list
-                        #print "path_list[%d]:%s" % (idx, path_list[idx])
-                        #print "path_list[%d][-1]:%s" % (idx, path_list[idx][-1])
-                        #print "v:", item[path_list[idx][-1]]
-                        tmp_v = item[path_list[idx][-1]]
-                    col_vlist.append(tmp_v)
-                result_list.append(col_vlist)
-            return (result_list, list)
-        else:
+    def __get_col_data(self, v, path_list, idx):
+        #return (value, value_type)
+        if idx == len(path_list) - 1:
+            #print "v:", v
             #print "path_list:", path_list
-            tmp = data
-            for path in path_list:
-                v = tmp[path]
-                tmp = v
-            if not v:
-                v = None
-            return (v, str)
+            #print "idx:", idx
+            ##debug
+            #with open("/home/kelly/temp/temp.json", "w") as fd:
+            #    ujson.dump(v, fd)
+            ret = v[path_list[idx]]
+            if isinstance(ret, list) and not ret:
+                ret = None
+            #print "ret:", v[path_list[idx]]
+            return (ret, 1 if isinstance(ret, list) else 0)
+        if path_list[idx] is list:
+            #print "v:", v
+            #print "path_list:", path_list
+            #print "idx:", idx
+            #print "path_list[idx]:", path_list[idx]
+            #print "path_list[idx + 1]:", path_list[idx + 1]
+            ret = []
+            #with open("/home/kelly/temp/temp.json", "w") as fd:
+            #    ujson.dump(v, fd)
+            list_flag = 0
+            for item in v:
+                #print "item:", item
+                #print "path_list:", path_list
+                #print "idx:", idx
+                #print "path_list[idx]:", path_list[idx]
+                #print "path_list[idx + 1]:", path_list[idx + 1]
+                #with open("/home/kelly/temp/temp.json", "w") as fd:
+                #    ujson.dump(item, fd)
+                v, list_flag_tmp = self.__get_col_data(item, path_list, idx + 1)
+                list_flag |= list_flag_tmp
+                ret.append(v)
+            return (ret, list_flag)
+        else:
+            print "v:", v
+            print "path_list:", path_list
+            print "idx:", idx
+            print "path_list[idx]:", path_list[idx]
+            return self.__get_col_data(v[path_list[idx]], path_list, idx + 1)
+
+    def get_col_list_data(self, table_name, data):
+        #return (col_list, transed_data_list, list_flag, list_len)
+        col_list = self.get_col_list(table_name)
+        insert_data = []
+        list_flag = 0
+        print " in get col list data table_name:", table_name
+        if table_name == "info":
+            debug = 1
+        else:
+            debug = 0
+        debug = 0
+        debug_v = {"col_list":col_list, "col_path_list":{}, "data":data}
+        for col in col_list:
+            path_list, map_type = self.info_parser.get_col_data_path_list(self.config_id, table_name, col)
+            debug_v["col_path_list"][col] = path_list
+            v, list_flag_tmp = self.__get_col_data(data, path_list, 0)
+            if debug:
+                print "in col table_name:", table_name
+                print "col:", col, v
+            if isinstance(v, list) and not v:
+                return ([], [], 0)
+            list_flag |= list_flag_tmp
+            insert_data.append(v)
+            #list_len = 0
+            #if isinstance(v, list):
+            #    list_len = len(v)
+        deepth = self.info_parser.get_data_path_deepth(self.config_id, table_name)
+        if debug:
+            print "%s raw_insert_data:" % table_name, insert_data
+            print "deepth:", deepth
+        if deepth > 1:
+            insert_data = zip(*insert_data)
+        for i in range(deepth - 2):
+            ret_list = []
+            for i in insert_data:
+                new_list = zip(*insert_data)
+                ret_list.append(new_list)
+            insert_data = ret_list
+
+        list_len = 0
+        for item in insert_data:
+            if deepth > 1:
+                for i in item:
+                    if debug:
+                        print "i:", i
+                    if isinstance(i, list):
+                        list_len = len(i)
+                        print "in deep list_len:", list_len
+            else:
+                if isinstance(item, list):
+                    #if debug:
+                    #    print "item:", item
+                    list_len = len(item)
+        if debug:
+            pass
+            #print "insert_data:", insert_data
+            #print "list_len:", list_len
+        if deepth > 1:
+            tmp_list = []
+            for item in insert_data:
+                #print "zip :", zip(*[d if isinstance(d, list) else [d] * list_len for d in item])
+                tmp_list.extend(zip(*[d if isinstance(d, list) else [d] * list_len for d in item]))
+            insert_data = tmp_list
+        elif deepth == 1:
+            insert_data = zip(*[d if isinstance(d, list) else [d] * list_len for d in insert_data])
+        else:
+            insert_data = [insert_data]
+        #if debug:
+        #    print "insert_data:", insert_data
+        #    print "deepth:", deepth
+        #    exit()
+        #print "ret:", insert_data, list_flag
+        return col_list, insert_data, list_flag
 
 class storage_info:
     def __init__(self):
@@ -397,12 +481,36 @@ class storage_info:
         return self.table_gen.get_create_sql()
 
     def gen_result_list(self, dlist, list_flag):
-        #print "list_flag:", list_flag
+        #while list_len:
+        #    dlist = zip(*[d if isinstance(d, list) else [d] * list_len for d in dlist])
+        #    for d in dlist:
+        #        if isinstance(d, list):
+        #            list_len = len(d)
+        #    #print "list_len:", list_len
+        #    list_len = 0
         if list_flag:
-            dlist = [d if isinstance(d, list) else [d] for d in dlist]
-            return list(product(*dlist))
+            print "in list_flag before dlist:", dlist
+            ret_list = []
+            for item in dlist:
+                print "before item:", item
+                tmp = list(product(*[d if isinstance(d, list) else [d] for d in item]))
+                print "after tmp:", tmp
+                #with open("/home/kelly/temp/temp.json", "w") as fd:
+                #    ujson.dump(tmp, fd)
+                #exit()
+                ret_list.extend(tmp)
+            #return list(product(*dlist))
+            #with open("/home/kelly/temp/temp.json", "w") as fd:
+            #    ujson.dump(ret_list, fd)
+            #exit()
+            return ret_list
         else:
-            return [dlist]
+            #return [dlist]
+            return dlist
+            #if list_len:
+            #    return dlist
+            #else:
+            #    return [dlist]
 
     def get_config_id_by_fname(self, fname):
         sp = fname.split("_")
@@ -430,10 +538,36 @@ class storage_info:
         table_name_list = self.table_gen.get_table_list()
         #print "table_name_list:", table_name_list
         for table_name in table_name_list:
+            #print "table_name:", table_name
             if table_name == "info":
                 debug = 1
             else:
                 debug = 0
+            #debug = 0
+            col_list, data_list, list_flag = self.table_gen.get_col_list_data(table_name, data)
+            if not data_list:
+                continue
+            if debug:
+                print "raw data_list:", ujson.dumps(data_list)
+                print "list_flag:", list_flag
+                print "table_name:", table_name
+                with open("/home/kelly/temp/temp.pickle", "w") as fd:
+                    pickle.dump(data_list, fd)
+            data_list = self.gen_result_list(data_list, list_flag)
+            #print "data_list:%d, table_name:%s, list_flag:%d, list_len:%d" % (len(data_list), table_name, list_flag, list_len)
+            if debug:
+                print "after gen data_list:", ujson.dumps(data_list)
+                with open("/home/kelly/temp/temp.json", "w") as fd:
+                    ujson.dump(data_list, fd)
+                print "table_name:", table_name
+                #exit()
+                #print "list_len:%d, list_flag:%d" % (list_len, list_flag)
+            col_str = ",".join(col_list)
+            #print "data_list:", data_list
+            sql = "insert into %s (%s) values (%s)" % (table_name, col_str, ",".join(["?"] * len(data_list[0])))
+            result_list.append((sql, data_list))
+            continue
+
             #if table_name != "info":
             #    continue
             #print "table_name:", table_name
@@ -448,11 +582,12 @@ class storage_info:
                     #print "col:", col
                     #print "get_col_data config_id:", config_id
                     #print "get_col_data table_name:", table_name
-                    print "get_col_data col:", col
-                    print "get_col_data d:", d
-                    print "get_col_data dtype:", dtype
-                    print "get_col_data: dlist:", dlist
+                    #print "get_col_data col:", col
+                    #print "get_col_data d:", d
+                    #print "get_col_data dtype:", dtype
+                    #print "get_col_data: dlist:", dlist
                     #print "get_col_data bool:", isinstance(d, list), dtype is list
+                    pass
                 if dtype is list:
                     dlist.extend(d)
                 else:
@@ -462,12 +597,13 @@ class storage_info:
                         list_flag = 1
                     dlist.append(d)
                     if debug:
-                        print "d:", d
-                        print "before dlist:", ujson.dumps(dlist)
-                        print "list_flag:", list_flag
+                        #print "d:", d
+                        #print "before dlist:", ujson.dumps(dlist)
+                        #print "list_flag:", list_flag
                         #raw_input(">>")
-            if debug:
-                print "after dlist:", dlist
+                        pass
+            #if debug:
+            #    print "after dlist:", dlist
             #print "list_flag:", list_flag
             if table_type == self.table_gen.multi2multi:
                 col_str = ",".join(col_list[0])
@@ -562,7 +698,7 @@ class table_info:
             return ret_str
     
     def parse_item(self, term, colname, sqlcolname):
-        print "colname:", colname
+        #print "colname:", colname
         item = term[colname]
         if isinstance(item, unicode):
             item = item.encode("utf-8")
@@ -575,14 +711,14 @@ class table_info:
             else:
                 item_str = ""
         elif colname == "source":
-            print "source:", item
+            #print "source:", item
             if isinstance(item, list):
                 item = [u"'" + unicode(i) + u"'" for i in item]
             else:
                 item = [u"'" + unicode(item) + u"'"]
             item_str = "%s in (%s)" % (sqlcolname[colname], (u",".join(item)).encode("utf-8"))
         elif colname == "site_domain":
-            print "site_domain:", item
+            #print "site_domain:", item
             if isinstance(item, list):
                 item = [u"'" + unicode(i) + u"'" for i in item]
             else:
@@ -669,13 +805,13 @@ class table_info:
         min_date = terms.get('min_date', "")
         max_date = terms.get('max_date', "")
         if "config_id" in terms:
-            print "country in terms:", "country" in terms
+            #print "country in terms:", "country" in terms
             if "country" in terms:
                 if terms["country"] == "all":
-                    print "appendding oversea_config_id"
+                    #print "appendding oversea_config_id"
                     ftype.append("oversea_config_id")
                 elif terms["country"] == "oversea":
-                    print "replace config_id to oversea_config_id"
+                    #print "replace config_id to oversea_config_id"
                     ftype = ["oversea_config_id"]
             if isinstance(terms['config_id'], list):
                 if terms["config_id"] and terms["config_id"][0] == 0 and (not max_date or max_date >= today):
@@ -700,7 +836,7 @@ class table_info:
             reg_str = "%s.*" % "|".join(location_list)
             #确保location与uid字段不共存
             terms.pop('uid', 0)
-        print "ftype:", ftype
+        #print "ftype:", ftype
         sql_str = \
                 "select type, date, fname, root_path_idx from dbpath where %s %s and (1=1 %s %s %s %s) order by date desc" \
                 % (" ( " + " or ".join(["type = '" + (t.encode("utf-8") if isinstance(t, unicode) else t) + "'" for t in ftype ]) + " ) ", "and worker_id = '%s'" % str(config.self_ip) , "and fname rlike '%s'" % reg_str if reg_str else "", "and date >= '%s'" % min_date.encode("utf-8") if min_date else "", "and date <= '%s' " % max_date.encode("utf-8") if max_date else "", today_sql_term)
@@ -710,7 +846,7 @@ class table_info:
         db = MySQLdb.connect(host=config.mysql_host, port=config.mysql_port, user=config.mysql_user, passwd=config.mysql_password, db=config.mysql_dbname, charset='utf8')
         cur = db.cursor()
         sql_str, root_dir = self.gen_dbpath_query_sql(terms)
-        print "!!!!!!!!!!!sql_str:", sql_str
+        #print "!!!!!!!!!!!sql_str:", sql_str
         cur.execute(sql_str)
         l = cur.fetchall()
         today_root_dir = config.today_root_dir
@@ -745,7 +881,8 @@ if __name__ == "__main__":
     temp_db_path = "/home/kelly/temp/test.db"
     os.system("rm -rf %s" % temp_db_path)
     storage = storage_info()
-    sqls = storage.get_create_sql("-2")
+    config_id = "-9"
+    sqls = storage.get_create_sql(config_id)
     print sqls
     conn = sqlite3.connect(temp_db_path)
     conn.text_factory = str
@@ -756,25 +893,29 @@ if __name__ == "__main__":
     #rhd = redis.from_url("redis://192.168.120.214/2")
     #s = rhd.lindex("custom_data", -1)
     #data = ujson.loads(s)
-    with open("/home/kelly/文档/custom_data.json") as fd:
+    data_path = "/home/kelly/temp/custom_data/%s.dat" % config_id
+    with open(data_path) as fd:
         data = ujson.load(fd)
     #for k in data:
     #    print k, data[k]
     #exit()
     result_list = storage.get_insert_sqls(data)
+    print "result_list ret:", len(result_list)
     #print ujson.dumps(result_list)
-    with open("/tmp/test.json", "w") as fd:
-        ujson.dump(result_list, fd)
+    #with open("/tmp/test.json", "w") as fd:
+    #    ujson.dump(result_list, fd)
+    #print "before result_list print"
     #print result_list[0][0]
     #print result_list[0][1]
     for result in result_list:
         #print result[0]
         #print result[1]
+        #break
         try:
             cur.executemany(result[0], result[1])
         except:
             print "~~~~~~~~~~~", result[0]
-            #print "~~~~~~~~~~~", result[1]
+            print "~~~~~~~~~~~", result[1]
             print "got executemany error"
     conn.commit()
     exit()
