@@ -60,7 +60,7 @@ if 0:
     try:
         while 1:
             on()
-            time.sleep(1)
+            time.sleep(10)
             off()
             time.sleep(1)
     except:
@@ -72,7 +72,6 @@ if 1:
     #PWM test
     init_out()
     p = GPIO.PWM(pin, 1000)
-    p.start(100)
     p.start(0)
     try:
         while 1:
